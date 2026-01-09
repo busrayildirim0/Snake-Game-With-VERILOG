@@ -1,0 +1,283 @@
+module snake_game_top(
+    input clk,
+    input reset_btn,
+    input btn_right,
+    input btn_left,
+    input btn_up,
+    input btn_down,
+    input pause_sw, 
+    
+    output hsync,
+    output vsync,
+    output [2:0] rgb
+);
+
+    wire display_on;
+    wire [8:0] hpos;
+    wire [8:0] vpos;
+
+    hvsync_generator vga_gen (
+        .clk(clk),
+        .reset(reset_btn),
+        .hsync(hsync),
+        .vsync(vsync),
+        .display_on(display_on),
+        .hpos(hpos), 
+        .vpos(vpos)
+    );
+
+    wire [5:0] grid_x = hpos[8:3];
+    wire [5:0] grid_y = vpos[8:3];
+
+    reg [5:0] head_x, head_y;
+    reg [5:0] food_x, food_y;
+    
+    reg [5:0] snake_x[63:0];
+    reg [5:0] snake_y[63:0];
+    
+    reg [5:0] length;
+    reg [5:0] speed_counter;
+    
+    reg [1:0] current_dir; 
+    reg [1:0] next_dir; 
+
+    localparam S0_START = 3'b000; 
+    localparam S1_MOVE  = 3'b001; 
+    localparam S3_OVER  = 3'b011;
+    localparam S4_PAUSE = 3'b100;
+
+    reg [2:0] state; 
+    reg hit_detect;  
+
+    integer j;
+    initial begin
+        state = S0_START; 
+        head_x = 8;  head_y = 15;
+        food_x = 18; food_y = 15;
+        length = 4;
+        current_dir = 0; 
+        next_dir = 0;
+        speed_counter = 0;
+        hit_detect = 0;
+        for (j = 0; j < 64; j = j + 1) begin
+            snake_x[j] = 0; snake_y[j] = 0;        
+        end
+    end
+
+    wire frame_tick = (hpos == 256 && vpos == 240);
+
+    always @(posedge clk) begin
+        if (reset_btn) begin
+            state <= S0_START;
+            hit_detect <= 0;
+        end 
+        else begin
+            
+            if (btn_right && current_dir != 1) next_dir <= 0;
+            else if (btn_left && current_dir != 0) next_dir <= 1;
+            else if (btn_up && current_dir != 3) next_dir <= 2;
+            else if (btn_down && current_dir != 2) next_dir <= 3;
+
+            case (state)
+                S0_START: begin
+                    if (btn_right || btn_left || btn_up || btn_down) begin
+                        
+                        head_x <= 8;  head_y <= 15;
+                        length <= 4;
+                        speed_counter <= 0;
+                        food_x <= 18; food_y <= 15; 
+                        current_dir <= 0; 
+                        next_dir <= 0;
+                        hit_detect <= 0;
+                        
+                        snake_x[0] <= 8; snake_y[0] <= 15; 
+                        snake_x[1] <= 7; snake_y[1] <= 15;
+                        snake_x[2] <= 6; snake_y[2] <= 15; 
+                        snake_x[3] <= 5; snake_y[3] <= 15; 
+                        
+                        for (j = 4; j < 64; j = j + 1) begin
+                            snake_x[j] <= 0; snake_y[j] <= 0;
+                        end
+
+                        state <= S1_MOVE;
+                    end
+                end
+
+                S1_MOVE: begin
+                    if (pause_sw) state <= S4_PAUSE;
+                    else if (hit_detect) state <= S3_OVER;
+                end
+
+                S3_OVER: begin
+                    
+                end
+
+                S4_PAUSE: begin
+                    if (!pause_sw) state <= S1_MOVE;
+                end
+                
+                default: state <= S0_START;
+            endcase
+
+            if (state == S1_MOVE && frame_tick) begin
+                if (speed_counter >= 7) begin
+                    speed_counter <= 0;
+                    current_dir <= next_dir;
+
+                    for (j = 63; j > 0; j = j - 1) begin
+                        if (j <= length) begin
+                            snake_x[j] <= snake_x[j-1];
+                            snake_y[j] <= snake_y[j-1];
+                        end
+                    end
+                    snake_x[0] <= head_x;
+                    snake_y[0] <= head_y;
+
+                    case (next_dir)
+                        0: head_x <= head_x + 1; 
+                        1: head_x <= head_x - 1; 
+                        2: head_y <= head_y - 1; 
+                        3: head_y <= head_y + 1; 
+                    endcase
+
+                    if (head_x <= 1 || head_x >= 28 || head_y <= 1 || head_y >= 28) 
+                        hit_detect <= 1;
+                    
+                    for (j = 1; j < 64; j = j + 1) begin
+                        if (j < length && head_x == snake_x[j] && head_y == snake_y[j])
+                            hit_detect <= 1;
+                    end
+
+                    if (head_x == food_x && head_y == food_y) begin
+                        if (length < 63) length <= length + 1;
+                        food_x <= ((head_x * 5) + 7) % 20 + 4; 
+                        food_y <= ((head_y * 3) + 11) % 20 + 4;
+                    end
+                end else begin
+                    speed_counter <= speed_counter + 1;
+                end
+            end
+        end
+    end
+
+    reg is_body;
+    integer k;
+
+    always @(*) begin
+        is_body = 0;
+        for (k = 0; k < 64; k = k + 1) begin
+            if (k < length) begin
+                if (grid_x == snake_x[k] && grid_y == snake_y[k])
+                    is_body = 1;
+            end
+        end
+    end
+
+    wire l_S = (grid_y==12 && grid_x>=7 && grid_x<=9) || (grid_y==14 && grid_x>=7 && grid_x<=9) || (grid_y==16 && grid_x>=7 && grid_x<=9) || (grid_x==7 && grid_y>=12 && grid_y<=14) || (grid_x==9 && grid_y>=14 && grid_y<=16);
+    wire l_T1 = (grid_y==12 && grid_x>=11 && grid_x<=13) || (grid_x==12 && grid_y>=12 && grid_y<=16);
+    wire l_A = (grid_y==12 && grid_x>=15 && grid_x<=17) || (grid_y==14 && grid_x>=15 && grid_x<=17) || (grid_x==15 && grid_y>=12 && grid_y<=16) || (grid_x==17 && grid_y>=12 && grid_y<=16);
+    
+    wire l_R_left = (grid_x==19 && grid_y>=12 && grid_y<=16);
+    wire l_R_top  = (grid_y==12 && grid_x>=19 && grid_x<=21) || (grid_y==14 && grid_x>=19 && grid_x<=21) || (grid_x==21 && grid_y==13);
+    wire l_R_leg  = (grid_x==20 && grid_y==15) || (grid_x==21 && grid_y==16);
+    
+    wire l_R = l_R_left || l_R_top || l_R_leg;
+
+    wire l_T2 = (grid_y==12 && grid_x>=23 && grid_x<=25) || (grid_x==24 && grid_y>=12 && grid_y<=16);
+    wire text_START = l_S || l_T1 || l_A || l_R || l_T2;
+
+    wire p_P = (grid_x==5 && grid_y>=12 && grid_y<=16) || (grid_y==12 && grid_x>=5 && grid_x<=7) || (grid_y==14 && grid_x>=5 && grid_x<=7) || (grid_x==7 && grid_y>=12 && grid_y<=14);
+    wire p_A = (grid_y==12 && grid_x>=9 && grid_x<=11) || (grid_y==14 && grid_x>=9 && grid_x<=11) || (grid_x==9 && grid_y>=12 && grid_y<=16) || (grid_x==11 && grid_y>=12 && grid_y<=16);
+    wire p_U = (grid_x==13 && grid_y>=12 && grid_y<=16) || (grid_x==15 && grid_y>=12 && grid_y<=16) || (grid_y==16 && grid_x>=13 && grid_x<=15);
+    wire p_S = (grid_y==12 && grid_x>=17 && grid_x<=19) || (grid_y==14 && grid_x>=17 && grid_x<=19) || (grid_y==16 && grid_x>=17 && grid_x<=19) || (grid_x==17 && grid_y>=12 && grid_y<=14) || (grid_x==19 && grid_y>=14 && grid_y<=16);
+    wire p_E = (grid_x==21 && grid_y>=12 && grid_y<=16) || (grid_y==12 && grid_x>=21 && grid_x<=23) || (grid_y==14 && grid_x>=21 && grid_x<=23) || (grid_y==16 && grid_x>=21 && grid_x<=23);
+    wire p_D = (grid_x==25 && grid_y>=12 && grid_y<=16) || (grid_y==12 && grid_x>=25 && grid_x<=26) || (grid_y==16 && grid_x>=25 && grid_x<=26) || (grid_x==27 && grid_y>=13 && grid_y<=15);
+    wire text_PAUSED = p_P || p_A || p_U || p_S || p_E || p_D;
+
+    wire g_G = (grid_y==10 && grid_x>=9 && grid_x<=11) || (grid_y==14 && grid_x>=9 && grid_x<=11) || (grid_x==9 && grid_y>=10 && grid_y<=14) || (grid_x==11 && grid_y>=12 && grid_y<=14) || (grid_x==10 && grid_y==12);
+    wire g_A = (grid_y==10 && grid_x>=13 && grid_x<=15) || (grid_y==12 && grid_x>=13 && grid_x<=15) || (grid_x==13 && grid_y>=10 && grid_y<=14) || (grid_x==15 && grid_y>=10 && grid_y<=14);
+    wire g_M = (grid_x==17 && grid_y>=10 && grid_y<=14) || (grid_x==21 && grid_y>=10 && grid_y<=14) || (grid_x==18 && grid_y==11) || (grid_x==19 && grid_y==12) || (grid_x==20 && grid_y==11);
+    wire g_E = (grid_x==23 && grid_y>=10 && grid_y<=14) || (grid_y==10 && grid_x>=23 && grid_x<=25) || (grid_y==12 && grid_x>=23 && grid_x<=25) || (grid_y==14 && grid_x>=23 && grid_x<=25);
+    
+    wire g_O = (grid_y==16 && grid_x>=9 && grid_x<=11) || (grid_y==20 && grid_x>=9 && grid_x<=11) || (grid_x==9 && grid_y>=16 && grid_y<=20) || (grid_x==11 && grid_y>=16 && grid_y<=20);
+    wire g_V = (grid_x==13 && grid_y>=16 && grid_y<=18) || (grid_x==15 && grid_y>=16 && grid_y<=18) || (grid_x==14 && grid_y>=19 && grid_y<=20);
+    wire g_E2 = (grid_x==17 && grid_y>=16 && grid_y<=20) || (grid_y==16 && grid_x>=17 && grid_x<=19) || (grid_y==18 && grid_x>=17 && grid_x<=19) || (grid_y==20 && grid_x>=17 && grid_x<=19);
+    wire g_R = (grid_x==21 && grid_y>=16 && grid_y<=20) || (grid_y==16 && grid_x>=21 && grid_x<=23) || (grid_y==18 && grid_x>=21 && grid_x<=23) || (grid_x==23 && grid_y==17) || (grid_x==23 && grid_y>=19);
+    wire text_GAMEOVER = g_G || g_A || g_M || g_E || g_O || g_V || g_E2 || g_R;
+
+    reg [2:0] pixel_color;
+
+    always @(*) begin
+        
+        if (!display_on || hpos >= 240 || vpos >= 240) begin
+            pixel_color = 3'b000;
+        end 
+        else begin
+            if (grid_x <= 1 || grid_x >= 28 || grid_y <= 1 || grid_y >= 28) begin
+                if (hpos[0] ^ vpos[0]) 
+                    pixel_color = 3'b100; 
+                else 
+                    pixel_color = 3'b110; 
+            end
+            else begin
+                case (state)
+                    S0_START: begin
+                        if (text_START) pixel_color = 3'b111;
+                        else pixel_color = 3'b000;
+                    end
+
+                    S4_PAUSE: begin
+                        if (text_PAUSED) pixel_color = 3'b111;
+                        else pixel_color = 3'b100;
+                    end
+
+                    S3_OVER: begin
+                        if (text_GAMEOVER) pixel_color = 3'b111;
+                        else pixel_color = 3'b100;
+                    end
+
+                    default: begin
+                        if (is_body) pixel_color = 3'b010;
+                        else if (grid_x == food_x && grid_y == food_y) pixel_color = 3'b110;
+                        else pixel_color = 3'b000;
+                    end
+                endcase
+            end
+        end
+    end
+
+    assign rgb = pixel_color;
+
+endmodule
+
+module hvsync_generator(
+    input clk,
+    input reset,
+    output reg hsync,
+    output reg vsync,
+    output reg display_on,
+    output reg [8:0] hpos,
+    output reg [8:0] vpos
+);
+    initial begin hpos = 0; vpos = 0; end
+
+    always @(posedge clk) begin
+        if (reset) begin
+            hpos <= 0; vpos <= 0;
+        end else begin
+            if (hpos < 319) begin
+                hpos <= hpos + 1;
+            end else begin
+                hpos <= 0;
+                if (vpos < 262) vpos <= vpos + 1;
+                else vpos <= 0;
+            end
+        end
+    end
+
+    always @(*) begin
+        display_on = (hpos < 256) && (vpos < 240);
+        hsync = (hpos >= 272 && hpos <= 303);
+        vsync = (vpos >= 245 && vpos <= 247);
+    end
+endmodule

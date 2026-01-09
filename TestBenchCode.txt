@@ -1,0 +1,76 @@
+`timescale 1ns/1ps
+
+module tb_snake;
+
+    reg clk;
+    reg reset;
+    reg btn_right;
+    reg eat;      reg hit;  
+
+
+    wire grow;
+    wire game_over;
+    wire new_food;
+    wire [4:0] head_x;
+    wire [4:0] head_y;
+    wire [5:0] length;
+
+
+    snake_core uut (
+        .clk(clk),
+        .reset(reset),
+        .btn_right(btn_right),
+        .eat(eat),      
+        .hit(hit),      
+        .grow(grow),
+        .game_over(game_over),
+        .new_food(new_food),
+        .head_x(head_x),
+        .head_y(head_y),
+        .length(length)
+    );
+
+
+    always #5 clk = ~clk;
+
+
+    always @(negedge clk) begin
+        eat = 0;
+        hit = 0;
+
+        if (!reset) begin
+            if (head_x == 5 && head_y == 0) begin
+                eat = 1; 
+            end
+
+            if (head_x == 8) begin
+                hit = 1;
+            end
+        end
+    end
+
+    initial begin
+        $dumpfile("wave.vcd");
+        $dumpvars(0, tb_snake);
+
+        clk = 0;
+        reset = 1;
+        btn_right = 0;
+        eat = 0;
+        hit = 0;
+
+        #20 reset = 0;
+
+        repeat (5) begin
+            #10 btn_right = 1;
+            #10 btn_right = 0;
+        end
+
+        repeat (3) begin
+            #10 btn_right = 1;
+            #10 btn_right = 0;
+        end
+
+        #50 $finish;
+    end
+endmodule
